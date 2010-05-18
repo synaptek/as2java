@@ -43,6 +43,11 @@ Grammar::definition<ScannerT>::definition(struct Grammar const& self)
     
 BOOST_SPIRIT_DEBUG_RULE(static_class_initializer);
 BOOST_SPIRIT_DEBUG_RULE(enum_declaration);
+BOOST_SPIRIT_DEBUG_RULE(member_type_declaration_modifiers);
+BOOST_SPIRIT_DEBUG_RULE(member_type_declaration_modifier);
+BOOST_SPIRIT_DEBUG_RULE(member_type_declaration);
+BOOST_SPIRIT_DEBUG_RULE(type_specifier);
+BOOST_SPIRIT_DEBUG_RULE(method_declaration);
 BOOST_SPIRIT_DEBUG_RULE(illegal_variable_declaration);
 BOOST_SPIRIT_DEBUG_RULE(reserved_words_not_names_rule);
 BOOST_SPIRIT_DEBUG_RULE(member_type_declaration);
@@ -53,8 +58,20 @@ BOOST_SPIRIT_DEBUG_RULE(type_rule);
 BOOST_SPIRIT_DEBUG_RULE(visibility_rule);
 BOOST_SPIRIT_DEBUG_RULE(package_statement);
 BOOST_SPIRIT_DEBUG_RULE(import_statement);
+BOOST_SPIRIT_DEBUG_RULE(type_hint_annotation);
+BOOST_SPIRIT_DEBUG_RULE(true_or_false);
+BOOST_SPIRIT_DEBUG_RULE(ignore_attribute);
+BOOST_SPIRIT_DEBUG_RULE(default_value_attribute);
+BOOST_SPIRIT_DEBUG_RULE(reference_type_attribute);
+BOOST_SPIRIT_DEBUG_RULE(editor_data_annotation);
+BOOST_SPIRIT_DEBUG_RULE(bindable_annotation);
+BOOST_SPIRIT_DEBUG_RULE(category_attribute);
+BOOST_SPIRIT_DEBUG_RULE(format_attribute);
+BOOST_SPIRIT_DEBUG_RULE(inspectable_annotation);
 BOOST_SPIRIT_DEBUG_RULE(annotation_rule);
 BOOST_SPIRIT_DEBUG_RULE(annotation_body);
+BOOST_SPIRIT_DEBUG_RULE(annotation_parms);
+BOOST_SPIRIT_DEBUG_RULE(inner_string_parser);
 BOOST_SPIRIT_DEBUG_RULE(parameter_rule);
 BOOST_SPIRIT_DEBUG_RULE(parm_list_rule);
 BOOST_SPIRIT_DEBUG_RULE(method_body);
@@ -67,12 +84,14 @@ BOOST_SPIRIT_DEBUG_RULE(close_curly);
 BOOST_SPIRIT_DEBUG_RULE(empty_parm_list_rule);
 BOOST_SPIRIT_DEBUG_RULE(non_empty_parm_list_rule);
 BOOST_SPIRIT_DEBUG_RULE(method_parm_list_rule);
-BOOST_SPIRIT_DEBUG_RULE(rest_of_method_rule);
 BOOST_SPIRIT_DEBUG_RULE(rest_of_variable_rule);
+BOOST_SPIRIT_DEBUG_RULE(simple_string);
+BOOST_SPIRIT_DEBUG_RULE(concatentated_strings);
+BOOST_SPIRIT_DEBUG_RULE(argument_list);
+BOOST_SPIRIT_DEBUG_RULE(construct_object);
+BOOST_SPIRIT_DEBUG_RULE(table_initializer);
 BOOST_SPIRIT_DEBUG_RULE(variable_decl_list_rule);
 BOOST_SPIRIT_DEBUG_RULE(variable_decl_rule);
-BOOST_SPIRIT_DEBUG_RULE(member_type_declaration);
-BOOST_SPIRIT_DEBUG_RULE(member_declaration);
 BOOST_SPIRIT_DEBUG_RULE(empty_method_body);
 BOOST_SPIRIT_DEBUG_RULE(member_implementation);
 BOOST_SPIRIT_DEBUG_RULE(import_statements);
@@ -85,6 +104,7 @@ BOOST_SPIRIT_DEBUG_RULE(extends_or_implements_rule);
 BOOST_SPIRIT_DEBUG_RULE(extends_rule);
 BOOST_SPIRIT_DEBUG_RULE(implements_rule);
 BOOST_SPIRIT_DEBUG_RULE(junk_chars);
+BOOST_SPIRIT_DEBUG_RULE(parser);
 #endif // BOOST_SPIRIT_DEBUG
 
     anything_but_curlies =
@@ -150,6 +170,22 @@ BOOST_SPIRIT_DEBUG_RULE(junk_chars);
         >>  package_name_rule                   [boost::bind(&ParserState::packageName, &self.m_parserState, _1, _2)]
     ;
 
+    declare_namespace =
+            !visibility_rule
+        >>  boost::spirit::as_lower_d["namespace"]
+        >>  package_name_rule
+        >>  boost::spirit::str_p("=")
+        >>  simple_string
+        >>  boost::spirit::str_p(";")
+    ;
+
+    use_statement =
+            boost::spirit::as_lower_d["use"]
+        >>  boost::spirit::as_lower_d["namespace"]
+        >>  package_name_rule
+        >>  boost::spirit::str_p(";")
+    ;
+
     import_statement = 
             boost::spirit::as_lower_d["import"] [boost::bind(&ParserState::beginImport, &self.m_parserState, _1, _2)]
         >>  !boost::spirit::str_p("static")     [boost::bind(&ParserState::staticImport, &self.m_parserState, _1, _2)]
@@ -181,9 +217,29 @@ BOOST_SPIRIT_DEBUG_RULE(junk_chars);
     ;
 
     parameter_rule =
-            type_rule                                   [boost::bind(&ParserState::parameterType, &self.m_parserState, _1, _2)]
-        >>  !boost::spirit::str_p("...")
-        >>  package_name_rule                           [boost::bind(&ParserState::parameterName, &self.m_parserState, _1, _2)]
+            (
+                    (
+                            package_name_rule               [boost::bind(&ParserState::parameterName, &self.m_parserState, _1, _2)]
+                        >>  type_specifier
+                    )
+                |   (
+                            boost::spirit::str_p("...")
+                        >>  name_rule
+                    )
+            )
+        >>  !(  // Optional default value for parameter
+                    boost::spirit::str_p("=")
+                >>  (
+                            simple_string
+                        | *(
+                                    boost::spirit::anychar_p
+                                -   (
+                                            boost::spirit::str_p(",")
+                                        |   boost::spirit::str_p(")")
+                                    )
+                            )
+                    )
+            )
     ;
 
     parm_list_rule =
@@ -211,35 +267,68 @@ BOOST_SPIRIT_DEBUG_RULE(junk_chars);
             )
     ;
 
-    throws_rule =
-            boost::spirit::str_p("throws")
-        >>  boost::spirit::list_p(package_name_rule, ",")
+//    throws_rule =
+//            boost::spirit::str_p("throws")
+//        >>  boost::spirit::list_p(package_name_rule, ",")
+//    ;
+//
+//    rest_of_method_rule =
+//            method_parm_list_rule
+//        >>  !(      // Optional because it might be a constructor
+//                    boost::spirit::str_p(":")
+//                >>  (type_rule | boost::spirit::str_p("*"))
+//            )
+//        >>  !throws_rule
+//        >>  method_body
+//    ;
+
+    simple_string =
+            boost::spirit::confix_p("\"", inner_string_parser, "\"")
+        |   boost::spirit::str_p("\"\"");
     ;
 
-    rest_of_method_rule =
-            method_parm_list_rule
-        >>  !throws_rule
-        >>  method_body
+    concatentated_strings =
+            (
+                    boost::spirit::list_p(
+                        simple_string,
+                        '+'
+                    )
+            )
+    ;
+
+    // List of arguments being passed to a method or constructor invocation.
+    argument_list =
+            boost::spirit::list_p(
+                    simple_string
+                |   boost::spirit::longest_d[boost::spirit::real_p | boost::spirit::int_p]
+            , ',')
+    ;
+
+    construct_object =
+            boost::spirit::str_p("new")
+        >>  type_rule
+        >>  boost::spirit::confix_p("("
+                , argument_list
+                , ")")
+    ;
+
+    table_initializer =
+            boost::spirit::confix_p("{"
+                , boost::spirit::list_p(name_rule >> ":" >> simple_string, ",")
+                , "}")
     ;
 
     variable_decl_rule =
             name_rule                                   [boost::bind(&ParserState::variableName, &self.m_parserState, _1, _2)]
         >>  boost::spirit::str_p(":")
-        >>  type_rule
+        >>  (type_rule | boost::spirit::str_p("*"))
         >>  !(
                 boost::spirit::str_p("=")
                 >> (
-                            (
-                                    boost::spirit::list_p(
-                                        boost::spirit::confix_p("\"", *(boost::spirit::lex_escape_ch_p | boost::spirit::anychar_p), "\""),
-                                        boost::spirit::str_p("+")
-                                    )
-                            )
-                        |   (
-                                    boost::spirit::str_p("new")
-                                >>  type_rule
-                                >>  boost::spirit::str_p("()")
-                            )
+                            simple_string
+                        |   concatentated_strings
+                        |   construct_object
+                        |   table_initializer
                         | *(
                                     boost::spirit::anychar_p 
                                 -   (
@@ -247,7 +336,7 @@ BOOST_SPIRIT_DEBUG_RULE(junk_chars);
                                         |   boost::spirit::str_p(",")
                                     )
                             )
-                    )
+                    )                                   [boost::bind(&ParserState::initVariable, &self.m_parserState, _1, _2)]
             )
     ;
 
@@ -263,13 +352,13 @@ BOOST_SPIRIT_DEBUG_RULE(junk_chars);
             boost::spirit::as_lower_d["public"]
         |   boost::spirit::as_lower_d["private"]
         |   boost::spirit::as_lower_d["protected"]
+        |   boost::spirit::as_lower_d["internal"]
     ;
 
     illegal_variable_declaration =
             (
                     boost::spirit::str_p("public")
                 >>  boost::spirit::str_p("static")
-                >>  boost::spirit::str_p("_JC_POST_STRUCT")
             )
         |   (
                     type_rule
@@ -284,9 +373,12 @@ BOOST_SPIRIT_DEBUG_RULE(junk_chars);
             boost::spirit::as_lower_d["public"]         [boost::bind(&ParserState::publicMember, &self.m_parserState, _1, _2)]
         |   boost::spirit::as_lower_d["private"]
         |   boost::spirit::as_lower_d["protected"]
+        |   boost::spirit::as_lower_d["internal"]
         |   boost::spirit::as_lower_d["static"]         [boost::bind(&ParserState::staticMember, &self.m_parserState, _1, _2)]
-        |   boost::spirit::as_lower_d["final"]
         |   boost::spirit::as_lower_d["abstract"]
+        |   boost::spirit::as_lower_d["override"]
+        |   boost::spirit::as_lower_d["final"]
+        |   boost::spirit::as_lower_d["flash_proxy"]
     ;
 
     member_type_declaration_modifiers =
@@ -298,10 +390,10 @@ BOOST_SPIRIT_DEBUG_RULE(junk_chars);
         >>  type_rule                              [boost::bind(&ParserState::beginMemberType, &self.m_parserState, _1, _2)]
     ;
 
-    member_declaration =
-            member_type_declaration
-        >>  !name_rule
-    ;
+//    member_declaration =
+//            member_type_declaration_modifiers
+//        >>  !name_rule
+//    ;
 
     enum_declaration =
             !visibility_rule
@@ -318,15 +410,16 @@ BOOST_SPIRIT_DEBUG_RULE(junk_chars);
         >>  (
         		    // function
                     (
-                    		boost::spirit::str_p("function")
-                            // Optional for constructors.  If we're parsing a constructor then
-                            // the member_type_declaration->type_rule matched the constructor name
-                        >>  !name_rule                  [boost::bind(&ParserState::methodName, &self.m_parserState, _1, _2)]
-                        >>  rest_of_method_rule         [boost::bind(&ParserState::endMethod, &self.m_parserState, _1, _2)]
+                            method_declaration
+                        >>  method_body
                     )
-                    // Variable declaration lists
+                    // Variable / const declaration lists
                 |   (
-							boost::spirit::str_p("var")
+							(
+							        boost::spirit::str_p("var")
+                                |   boost::spirit::str_p("const")
+                            )
+
                         >>  variable_decl_list_rule
                         >>  (
                                     boost::spirit::str_p(";")
@@ -340,6 +433,11 @@ BOOST_SPIRIT_DEBUG_RULE(junk_chars);
                             */
                                                         
                     )                                   [boost::bind(&ParserState::endVariables, &self.m_parserState, _1, _2)]
+                    // Inner class or interface
+                |   (
+                            class_definition
+                        |   interface_definition
+                    )
             )
     ;
 
@@ -360,9 +458,11 @@ BOOST_SPIRIT_DEBUG_RULE(junk_chars);
 
     extends_rule = 
             boost::spirit::as_lower_d["extends"]
-    >>  (
-                type_rule                       [boost::bind(&ParserState::superClassName, &self.m_parserState, _1, _2)]
-        )
+        >>  boost::spirit::list_p
+            (
+                    package_name_rule           [boost::bind(&ParserState::superClassName, &self.m_parserState, _1, _2)]
+                    , ","
+            )
     ;
 
     implements_rule =
@@ -379,13 +479,34 @@ BOOST_SPIRIT_DEBUG_RULE(junk_chars);
         >>  *implements_rule
     ;
 
+    type_specifier =
+            boost::spirit::str_p(":")
+        >>  (type_rule | boost::spirit::str_p("*")) [boost::bind(&ParserState::parameterType, &self.m_parserState, _1, _2)]
+    ;
+
+    method_declaration =
+            boost::spirit::str_p("function")
+        >>  (   // (<get|set> methodName) | (get|set)
+                (
+                        !( // Optional get or set modifier
+                               boost::spirit::str_p("get")
+                            |  boost::spirit::str_p("set")
+                        )
+                    >>  name_rule
+                )
+                |   (
+                            boost::spirit::str_p("get")
+                         |  boost::spirit::str_p("set")
+                    )
+            )                                       [boost::bind(&ParserState::methodName, &self.m_parserState, _1, _2)]
+        >>  method_parm_list_rule
+            // Optional type specifier (constructors don't have types)
+        >>  !type_specifier
+    ;
+
     interface_member_declaration =
-            (
-                    member_declaration
-                >>  method_parm_list_rule
-                >>  boost::spirit::str_p(";")
-            )
-        |   member_implementation
+            method_declaration
+        >>  !boost::spirit::str_p(";")
     ;
 
     interface_body = 
@@ -413,58 +534,133 @@ BOOST_SPIRIT_DEBUG_RULE(junk_chars);
 
     // Parse everything inside of quotes, except for the quotes, and allow for C style escapes
     inner_string_parser = 
-        *(
-                boost::spirit::lex_escape_ch_p 
-            |   (
-                        boost::spirit::anychar_p 
-                )
+        boost::spirit::lexeme_d[
+            *(
+                    // TODO Why isn't this working?
+                    //boost::spirit::lex_escape_ch_p
+                //|   (
+                        boost::spirit::anychar_p - (
+                                        boost::spirit::str_p("\"")
+                                    |   boost::spirit::str_p("\\")
+                                )
+                    //)
+            )
+        ]
+    ;
+
+    type_hint_annotation =
+            boost::spirit::str_p("TypeHint")
+        >>  boost::spirit::confix_p("("
+                , (
+                        boost::spirit::str_p("type=")
+                    >>  simple_string
+                  )
+                , ")"
+            )
+    ;
+
+    true_or_false =
+            boost::spirit::as_lower_d["true"]
+        |   boost::spirit::as_lower_d["false"]
+    ;
+
+    ignore_attribute =
+            boost::spirit::str_p("ignore=")
+        >>  boost::spirit::confix_p("\"", true_or_false, "\"")
+    ;
+
+    default_value_attribute =
+            boost::spirit::str_p("defaultValue=")
+        >>  simple_string
+    ;
+
+    reference_type_attribute =
+            boost::spirit::str_p("referenceType=")
+        >>  simple_string
+    ;
+
+    edit_as_attribute =
+            boost::spirit::str_p("editAs=")
+        >>  simple_string
+    ;
+
+    type_hint_attribute =
+            boost::spirit::str_p("typeHint=")
+        >>  simple_string
+    ;
+
+    extensions_attribute =
+            boost::spirit::str_p("extensions=")
+        >>  simple_string
+    ;
+
+    editor_data_annotation =
+            boost::spirit::str_p("EditorData")
+        >>  boost::spirit::confix_p("("
+                , boost::spirit::list_p(
+                     (
+                            ignore_attribute
+                         |  default_value_attribute
+                         |  reference_type_attribute
+                         |  edit_as_attribute
+                         |  type_hint_attribute
+                         |  extensions_attribute
+                     )
+                     , ','
+                  )
+                , ")"
+            )
+    ;
+
+    bindable_annotation =
+            boost::spirit::str_p("Bindable")
+    ;
+
+    category_attribute =
+            boost::spirit::str_p("category=")
+        >>  simple_string
+    ;
+
+    format_attribute =
+            boost::spirit::str_p("format=")
+        >>  simple_string
+    ;
+
+    inspectable_annotation =
+            boost::spirit::str_p("Inspectable")
+    >>  boost::spirit::confix_p("("
+            , boost::spirit::list_p(
+                 (   category_attribute
+                 |  default_value_attribute
+                 |  format_attribute
+                 )
+                 , ','
+              )
+            , ")"
         )
     ;
 
-    category_handle_string =
-        name_rule                               [boost::bind(&ParserState::categoryHandle, &self.m_parserState, _1, _2)]
-    ;
-
-    category_category_string =
-        name_rule                               [boost::bind(&ParserState::categoryCategory, &self.m_parserState, _1, _2)]
-    ;
-
-    category_strategy =
-        name_rule                               [boost::bind(&ParserState::categoryStrategy, &self.m_parserState, _1, _2)]
-    ;
-
-    category_class_parms =
-            boost::spirit::str_p("handle")
-        >>  boost::spirit::str_p("=")
-        >>  boost::spirit::confix_p("\"", category_handle_string, "\"")
-        >>  boost::spirit::str_p(",")
-        >>  boost::spirit::str_p("category")
-        >>  boost::spirit::str_p("=")
-        >>  boost::spirit::confix_p("\"", category_category_string, "\"")
-        >>  boost::spirit::str_p(",")
-        >>  boost::spirit::str_p("strategy")
-        >>  boost::spirit::str_p("=")
-        >>  category_strategy
-    ;
-
     annotation_body =
-    		boost::spirit::str_p("TypeHint")
-		>>  boost::spirit::confix_p("("
-				, (
-				        boost::spirit::str_p("type=")
-					>>  boost::spirit::confix_p("\"", package_name_rule, "\"")
-				  )
-				, ")")
+            type_hint_annotation
+        |   editor_data_annotation
+        |   bindable_annotation
+        |   inspectable_annotation
 	;
 
     annotation_rule = 
         boost::spirit::confix_p("[", annotation_body, "]")
     ;
 
+    class_modifiers =
+            boost::spirit::as_lower_d["dynamic"]
+        |   boost::spirit::as_lower_d["final"]
+    ;
+
     class_definition = 
             *annotation_rule
+        >>  *class_modifiers
         >>  !visibility_rule
-        >>  !boost::spirit::as_lower_d["abstract"]
+        >>  *class_modifiers
         >>  boost::spirit::as_lower_d["class"]
         >>  (
                     name_rule                   [boost::bind(&ParserState::className, &self.m_parserState, _1, _2)]
@@ -476,22 +672,59 @@ BOOST_SPIRIT_DEBUG_RULE(junk_chars);
             )
     ;
 
+    name_attribute =
+            boost::spirit::str_p("name=")
+        >>  simple_string
+    ;
+
+    type_attribute =
+            boost::spirit::str_p("type=")
+        >>  simple_string
+    ;
+
+    event_definition_attribute =
+           name_attribute
+        |  type_attribute
+    ;
+
+    event_definition_body =
+            boost::spirit::str_p("Event")
+        >>  boost::spirit::confix_p("("
+                , boost::spirit::list_p(event_definition_attribute, ',')
+                , ")")
+    ;
+
+    event_definition =
+            boost::spirit::confix_p("[", event_definition_body, "]")
+        ;
+
     junk_chars = 
         self.JunkChars
     ;
 
     package_body =
     	    !import_statements
-		// Class definition is optional due to some files being empty
-		>>  !(
+        >>  *declare_namespace
+    	>>  *use_statement
+    	    // Class definition is optional due to some files being empty
+		>>  *(
 					class_definition
 		        |   interface_definition
+		        |   event_definition
+		        |   member_implementation
 			)
 	;
 
     parser =
             !package_statement
         >>  boost::spirit::confix_p("{", package_body, "}")
+        >>  !import_statements
+        >>  *(
+                    class_definition
+                |   interface_definition
+                |   event_definition
+                |   member_implementation
+            )
         >>  *junk_chars
         >>  boost::spirit::end_p
     ;

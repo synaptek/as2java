@@ -173,6 +173,9 @@ ParserState::className(ParserState::iterator_t _First, const ParserState::iterat
 void
 ParserState::superClassName(ParserState::iterator_t _First, const ParserState::iterator_t &_Last)
 {
+    // TODO if this is an interface, pass _First, _Last to implementsInterface(),
+    // otherwise execute the following code.
+
     std::string argument;
 
     while(_First != _Last)
@@ -212,6 +215,10 @@ ParserState::methodName(ParserState::iterator_t _First, const ParserState::itera
 
     m_methodName = argument;
 
+    // TODO m_methodName might have a get/set + " " + methodName.
+    // Need to change the first character of methodName to upper case, then
+    // strip out the space resulting in getMethodName or setMethodName.
+
     m_pCurrentMethod = new Method(argument, m_memberType, m_static, m_public);
 }
 
@@ -227,6 +234,20 @@ ParserState::variableName(ParserState::iterator_t _First, const ParserState::ite
     }
 
     m_variableNames.push_back(argument);
+}
+
+//-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~
+void
+ParserState::initVariable(ParserState::iterator_t _First, const ParserState::iterator_t &_Last)
+{
+    std::string argument;
+
+    while(_First != _Last)
+    {
+        argument += *_First++;
+    }
+
+    std::cout << "Initialized variable to " << argument << std::endl;
 }
 
 //-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~

@@ -47,6 +47,9 @@ public:
     /// Name of a variable
     void variableName(iterator_t _First, iterator_t const& _Last);
 
+    /// Initialize a variable
+    void initVariable(iterator_t _First, iterator_t const& _Last);
+
     /// Name of a method
     void packageName(iterator_t _First, iterator_t const& _Last);
 
